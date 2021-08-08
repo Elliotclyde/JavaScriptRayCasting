@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raycasting</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: hsl(0, 0%, 0%);
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="can"></canvas>
+    <button id="stop">Stop!</button>
+    <script>
+        // Setting up main constants
+        const canvasWidth = 500;
+        const canvasHeight = 500;
+        const skyColor = 'hsl(210,50%,80%)';
+        const groundColor = 'hsl(210,50%,20%)';
+
+        //set up map
+
+        const map = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 2, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 2, 0, 0, 0, 0, 0, 0, 3],
+            [1, 0, 2, 0, 0, 0, 0, 0, 0, 3],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 4],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 3],
+            [1, 0, 0, 0, 0, 1, 1, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 1, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 2, 2, 0, 0, 0, 0, 0, 1],
+            [1, 0, 2, 2, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 4, 4, 1]
+        ]
+
+        const player = {
+            // Current x, y position of the player
+            x: 20,
+            y: 95,
+            // The direction that the player is turning,
+            // either -1 for left or 1 for right
+            dir: 0,
+            // The current angle of rotation
+            rot: 0,
+            // Is the playing moving forward (speed = 1)
+            // or backwards (speed = -1).
+            speed: 0,
+            // How far (in map units) does
+            // the player move each step/update
+            //previously 0.18
+            moveSpeed: 1,
+            // How much does the player rotate each
+            // step/update (in radians)
+            rotSpeed: 6 * Math.PI / 180,
+            radius: 3
+        }
+
+        const canvas = document.getElementById('can');
+        const ctx = canvas.getContext('2d');
+        let playing = true;
+
+        const stopButton = document.getElementById('stop');
+        stopButton.addEventListener("click", (e) => { playing = false; });
+
+        var numTextures = 4;
+        const textures = new Image(128, 256);
+        textures.src = "walls.png";
+        function init() {
+            bindKeys();
+            initWidthAndHeight();
+            gameCycle();
+        }
+
+        function gameCycle() {
+            clear();
+            drawBackground();
+            move();
+            castRays();
+            renderMap();
+
+            //     console.log(`x: ${player.x} y: ${player.y}`);
+            if (playing) {
+                setTimeout(gameCycle, 1000 / 30); // Aim for 30 FPS
+            }
+        }
+
+        function bindKeys() {
+            document.onkeydown = function (e) {
+                e = e || window.event;
+                // Which key was pressed?
+                switch (e.keyCode) {
+                    // Up, move player forward, ie. increase speed
+                    case 38:
+                        player.speed = 1; break;
+                    // Down, move player backward, set negative speed
+                    case 40:
+                        player.speed = -1; break;
+                    // Left, rotate player left
+                    case 37:
+                        player.dir = -1; break;
+                    // Right, rotate player right
+                    case 39:
+                        player.dir = 1; break;
+                }
+            }
+            // Stop the player movement/rotation
+            // when the keys are released
+            document.onkeyup = function (e) {
+                e = e || window.event;
+                switch (e.keyCode) {
+                    case 38:
+                    case 40:
+                        player.speed = 0; break;
+                    case 37:
+                    case 39:
+                        player.dir = 0; break;
+                }
+            }
+        }
+
+        function initWidthAndHeight() {
+            canvas.style.width = canvasWidth;
+            canvas.style.height = canvasHeight;
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+        }
+        function clear() {
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        }
+
+        function drawBackground() {
+            ctx.fillStyle = skyColor;
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight/2);
+            ctx.fillStyle = groundColor;
+            ctx.fillRect(0, canvasHeight/2, canvasWidth, canvasHeight/2);
+        }
+        // minimap display constants
+
+        const mapColor = 'hsl(0,0%,50%)';
+        const blockSize = 10;
+        const mapHeight = map.length * blockSize;
+        const mapWidth = (map[0].length + 1) * blockSize;
+        const playerColor = 'hsl(135,80%,20%)';
+        const mapTopLeftY = canvasHeight - mapHeight;
+
+        function renderMap() {
+            ctx.fillStyle = mapColor;
+            for (i = 0; i < map.length; i++) {
+                for (j = 0; j < map[0].length; j++) {
+                    if (map[i][j] > 0) {
+                        ctx.fillRect(j * blockSize, canvasHeight - mapHeight + i * blockSize, blockSize, blockSize);
+                    }
+                }
+            }
+            ctx.fillStyle = playerColor;
+            ctx.beginPath();
+            ctx.ellipse(player.x, mapTopLeftY + player.y, player.radius, player.radius, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function move() {
+            // Player will move this far along
+            // the current direction vector
+            var moveStep = player.speed * player.moveSpeed;
+
+            // Add rotation if player is rotating (player.dir != 0)
+            player.rot += player.dir * player.rotSpeed;
+
+            // Calculate new player position with simple trigonometry
+            var newX = player.x + Math.cos(player.rot) * moveStep;
+            var newY = player.y + Math.sin(player.rot) * moveStep;
+
+            // Collision check
+            if (isBlocking(newX, newY)) {
+                return;
+            }
+            // Set new position
+            player.x = newX;
+            player.y = newY;
+        }
+
+        function isBlocking(x, y) {
+            if (y < 0 || y >= mapHeight || x < 0 || x >= mapWidth) {
+                return true;
+            }
+            // Return true if the map block is not 0,
+            // i.e. if there is a blocking wall.
+            return (map[Math.floor(y / blockSize)][Math.floor(x / blockSize)] != 0);
+        }
+
+        //Number of rays?????
+        // number of rays is calculated by the angle / screenwidth
+        // for now lets pretent we only have a 2 pixel screen and 90 deg angle
+
+        //pixels
+        const pixels = 500;
+
+        // angle of vision
+        // one radian is equal to 180/π degrees
+        const fieldOfVision = 60 * (180 / Math.PI);
+
+        // Later on we'll also need the resolution
+
+        // For now we'll make the number of arrays the number of pixels on the screen
+        // later on we'll need to take into account how WIDE we'll make the rays
+        const numRays = pixels;
+
+
+        // To represent the view on the screen, there is going to be a SQUARE 
+        // Infront of where the player is looking. This is dependent on 
+        // the pixels and the field of vision. Here is how we get this:
+
+        const distanceToProjectionPlane = (pixels / 2) / Math.tan((fieldOfVision / 2));
+
+        const twoPI = Math.PI * 2;
+
+        function castRays() {
+            let currentStripId = 0;
+            for (var i = 0; i < numRays; i++) {
+
+                // Where on the screen does ray go through?
+                // The middle is 0
+                const rayScreenPos = -numRays / 2 + i;
+
+                // The distance from the viewer to the point on the projection of the current ray
+                // This will grow as we get further away from 0 as the triangle gets wider
+                const rayViewDist = Math.sqrt(rayScreenPos * rayScreenPos + distanceToProjectionPlane * distanceToProjectionPlane);
+
+                // The angle of the ray, relative to the viewing direction
+                // Right triangle: a = sin(A) * c
+                const rayAngle = Math.asin(rayScreenPos / rayViewDist);
+                castSingleRay(
+                    // Add the players viewing direction
+                    // to get the angle in world space
+                    player.rot + rayAngle,
+                    currentStripId
+                );
+                currentStripId = currentStripId + 1;
+            }
+        }
+
+        var screenStrips = [];
+
+        function castSingleRay(rayAngle, id) {
+
+            // first make sure the angle is between 0 and 360 degrees
+            rayAngle %= twoPI;
+            if (rayAngle < 0) rayAngle += twoPI;
+
+            // moving right/left? up/down? Determined by which quadrant the angle is in.
+            const right = (rayAngle > twoPI * 0.75 || rayAngle < twoPI * 0.25);
+            const up = (rayAngle < 0 || rayAngle > Math.PI);
+
+            // only do these once
+            const angleSin = Math.sin(rayAngle);
+            const angleCos = Math.cos(rayAngle);
+
+            var wallType = 0;
+
+            let dist = 0;	// the distance to the block we hit
+            let xHit = 0; 	// the x and y coord of where the ray hit the block
+            let yHit = 0;
+
+            var textureX;	// the x-coord on the texture of the block, ie. what part of the texture are we going to render
+            var wallX;	// the (x,y) map coords of the block
+            var wallY;
+
+
+            // first check against the vertical map/wall lines
+            // we do this by moving to the right or left edge of the block we're standing in
+            // and then moving in 1 map unit steps horizontally. The amount we have to move vertically
+            // is determined by the slope of the ray, which is simply defined as sin(angle) / cos(angle).
+
+            var slope = angleSin / angleCos; 	// the slope of the straight line made by the ray
+            var dX = right ? 1 : -1; 	// we move either 1 map unit to the left or right
+            var dY = dX * slope; 		// how much to move up or down
+
+            // Starting horizontal position, at one
+            // of the edges of the current map block
+            var x = right ? Math.ceil(player.x / 10) : Math.floor(player.x / 10);
+            // Starting vertical position. We add the small horizontal
+            // step we just made, multiplied by the slope
+            var y = player.y / 10 + (x - player.x / 10) * slope;
+
+            while (x >= 0 && x < map[0].length && y >= 0 && y < map.length) {
+                var wallX = Math.floor((x + (right ? 0 : -1)));
+                var wallY = Math.floor(y);
+                // is this point inside a wall block?
+                if (map[wallY][wallX] > 0) {
+
+                    distX = x - (player.x / 10)
+                    distY = y - (player.y / 10);
+
+                    dist = distX * distX + distY * distY;	// the distance from the player to this point, squared.
+
+                    textureX = (y) % 1;	// where exactly are we on the wall? textureX is the x coordinate on the texture that we'll use when texturing the wall.
+                    if (!right) textureX = 1 - textureX; // if we're looking to the left side of the map, the texture should be reversed
+
+                    wallType = map[wallY][wallX];
+                    xHit = x * 10;	// save the coordinates of the hit. We only really use these to draw the rays on minimap.
+                    yHit = y * 10;
+
+                    break;
+                }
+                x += dX;
+                y += dY;
+            }
+
+            // now check against horizontal lines. It's basically the same, just "turned around".
+            // the only difference here is that once we hit a map block, 
+            // we check if there we also found one in the earlier, vertical run. We'll know that if dist != 0.
+            // If so, we only register this hit if this distance is smaller.
+
+            var slope = angleCos / angleSin;
+            var dY = up ? -1 : 1;
+            var dX = dY * slope;
+            var y = up ? Math.floor(player.y / 10) : Math.ceil(player.y / 10);
+            var x = player.x / 10 + (y - player.y / 10) * slope;
+
+            while (x >= 0 && x < map[0].length && y >= 0 && y < map.length) {
+                var wallY = Math.floor(y + (up ? -1 : 0));
+                var wallX = Math.floor(x);
+                if (map[wallY][wallX] > 0) {
+                    distX = x - (player.x / 10);
+                    distY = y - (player.y / 10);
+                    var blockDist = distX * distX + distY * distY;
+                    if (!dist || blockDist < dist) {
+                        dist = blockDist;
+                        xHit = x * 10;
+                        yHit = y * 10;
+                        wallType = map[wallY][wallX];
+                        textureX = (x) % 1;
+                        if (up) textureX = 1 - textureX;
+                    }
+                    break;
+                }
+                x += dX;
+                y += dY;
+                debugger;
+            }
+            if (dist) {
+                drawRay(xHit, mapTopLeftY + yHit);
+
+                dist = Math.sqrt(dist);
+
+                // use perpendicular distance to adjust for fish eye
+                // distorted_dist = correct_dist / cos(relative_angle_of_ray)
+                dist = dist * Math.cos(player.rot - rayAngle);
+
+                // now calc the position, height and width of the wall strip
+
+                // "real" wall height in the game world is 1 unit, the distance from the player to the screen is viewDist,
+                // thus the height on the screen is equal to wall_height_real * viewDist / dist
+
+                var height = Math.round(distanceToProjectionPlane / dist);
+
+                // width is the same, but we have to stretch the texture to a factor of stripWidth to make it fill the strip correctly
+                var width = height;
+
+                // top placement is easy since everything is centered on the x-axis, so we simply move
+                // it half way down the screen and then half the wall height back up.
+                var top = Math.round((pixels - height) / 2);
+
+                var texX = Math.round(textureX * width);
+                if (texX > width - 1)
+                    texX = width - 1;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(id, top, 1, height);
+                ctx.clip();
+                ctx.drawImage(textures, id - texX, top - Math.floor(height * (wallType - 1)), Math.floor(width * 2), Math.floor(height * numTextures));
+                ctx.restore();
+
+            }
+        }
+
+        function drawRay(endX, endY) {
+            ctx.strokeStyle = "rgba(0,100,0,0.3)";
+            ctx.lineWidth = 0.5;
+
+            ctx.beginPath();
+            ctx.moveTo(player.x, mapTopLeftY + player.y);
+            ctx.lineTo(
+                endX, endY
+            );
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        init();
+
+    </script>
+</body>
+
+</html>
